@@ -35,12 +35,12 @@ use core::{
 use inner::Inner;
 
 #[cfg(feature = "alloc")]
-pub struct SmallBox<T: ?Sized, Space = [usize; 1], A: Allocator = alloc::alloc::Global>(
+pub struct SmallBox<T: ?Sized, Space, A: Allocator = alloc::alloc::Global>(
     Inner<T, Space, A>,
 );
 
 #[cfg(not(feature = "alloc"))]
-pub struct SmallBox<T: ?Sized, Space = [usize; 1], A: Allocator>(Inner<T, Space, A>);
+pub struct SmallBox<T: ?Sized, Space, A: Allocator>(Inner<T, Space, A>);
 
 impl<T: Sized, S, A: Allocator + Default> SmallBox<T, S, A> {
     #[inline]

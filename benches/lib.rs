@@ -1,15 +1,16 @@
-#![feature(test)]
+#![feature(test, allocator_api)]
 
 extern crate smolbox;
 extern crate test;
 
 use smolbox::SmallBox;
+use std::alloc::Global;
 use test::{black_box, Bencher};
 
 #[bench]
 fn smallbox_small_item_small_space(b: &mut Bencher) {
     b.iter(|| {
-        let small: SmallBox<_, [usize; 1]> = black_box(SmallBox::new(black_box(true)));
+        let small: SmallBox<_, [usize; 1], Global> = black_box(SmallBox::try_new(black_box(true)).unwrap());
         small
     })
 }
@@ -17,7 +18,7 @@ fn smallbox_small_item_small_space(b: &mut Bencher) {
 #[bench]
 fn smallbox_small_item_large_space(b: &mut Bencher) {
     b.iter(|| {
-        let small: SmallBox<_, [usize; 64]> = black_box(SmallBox::new(black_box(true)));
+        let small: SmallBox<_, [usize; 64], Global> = black_box(SmallBox::try_new(black_box(true)).unwrap());
         small
     })
 }
@@ -25,7 +26,7 @@ fn smallbox_small_item_large_space(b: &mut Bencher) {
 #[bench]
 fn smallbox_large_item_small_space(b: &mut Bencher) {
     b.iter(|| {
-        let large: SmallBox<_, [usize; 1]> = black_box(SmallBox::new(black_box([0usize; 64])));
+        let large: SmallBox<_, [usize; 1], Global> = black_box(SmallBox::try_new(black_box([0usize; 64])).unwrap());
         large
     })
 }
@@ -33,7 +34,7 @@ fn smallbox_large_item_small_space(b: &mut Bencher) {
 #[bench]
 fn smallbox_large_item_large_space(b: &mut Bencher) {
     b.iter(|| {
-        let large: SmallBox<_, [usize; 64]> = black_box(SmallBox::new(black_box([0usize; 64])));
+        let large: SmallBox<_, [usize; 64], Global> = black_box(SmallBox::try_new(black_box([0usize; 64])).unwrap());
         large
     })
 }

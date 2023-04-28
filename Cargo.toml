@@ -16,5 +16,5 @@ assert_no_alloc = "1"
 impls = "1"
 
 [features]
-default = ["alloc"]
+default = []
 alloc = []

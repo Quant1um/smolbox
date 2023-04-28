@@ -1,6 +1,12 @@
+#![feature(allocator_api)]
+
 extern crate smolbox;
 
-use std::{any::Any, mem::size_of};
+use std::{
+    any::Any, 
+    mem::size_of, 
+    alloc::Global
+};
 
 use assert_no_alloc::*;
 use smolbox::SmallBox;
@@ -12,7 +18,7 @@ static A: AllocDisabler = AllocDisabler;
 #[test]
 pub fn test_inlined_small() {
     assert_no_alloc(|| {
-        let mut boxed = SmallBox::<_, [usize; 1]>::new(1usize);
+        let mut boxed = SmallBox::<_, [usize; 1], Global>::try_new(1usize).unwrap();
 
         assert!(SmallBox::is_inlined(&boxed));
         assert_eq!(*boxed, 1);
@@ -27,7 +33,7 @@ pub fn test_inlined_small() {
 #[test]
 pub fn test_inlined_large() {
     assert_no_alloc(|| {
-        let mut boxed = SmallBox::<_, [usize; 64]>::new([0usize; 64]);
+        let mut boxed = SmallBox::<_, [usize; 64], Global>::try_new([0usize; 64]).unwrap();
 
         assert!(SmallBox::is_inlined(&boxed));
         assert_eq!(*boxed, [0usize; 64]);
@@ -41,7 +47,7 @@ pub fn test_inlined_large() {
 
 #[test]
 pub fn test_heap_small() {
-    let mut boxed = SmallBox::<_, [usize; 0]>::new(1usize);
+    let mut boxed = SmallBox::<_, [usize; 0], Global>::try_new(1usize).unwrap();
 
     assert!(!SmallBox::is_inlined(&boxed));
     assert_eq!(*boxed, 1);
@@ -54,7 +60,7 @@ pub fn test_heap_small() {
 
 #[test]
 pub fn test_heap_large() {
-    let mut boxed = SmallBox::<_, [usize; 16]>::new([0usize; 64]);
+    let mut boxed = SmallBox::<_, [usize; 16], Global>::try_new([0usize; 64]).unwrap();
 
     assert!(!SmallBox::is_inlined(&boxed));
     assert_eq!(*boxed, [0usize; 64]);
@@ -67,7 +73,7 @@ pub fn test_heap_large() {
 
 #[test]
 pub fn test_inlined_any() {
-    let mut boxed: SmallBox<dyn Any, [usize; 1]> = SmallBox::coerce(SmallBox::new(1usize));
+    let mut boxed: SmallBox<dyn Any, [usize; 1], Global> = SmallBox::coerce(SmallBox::try_new(1usize).unwrap());
 
     assert!(SmallBox::is_inlined(&boxed));
     assert_eq!(boxed.downcast_ref(), Some(&1usize));
@@ -80,7 +86,7 @@ pub fn test_inlined_any() {
     assert_eq!(*boxed, 2usize);
     *boxed = 3usize;
 
-    let boxed: SmallBox<dyn Any, [usize; 1]> = SmallBox::coerce(boxed);
+    let boxed: SmallBox<dyn Any, [usize; 1], Global> = SmallBox::coerce(boxed);
 
     assert!(SmallBox::is_inlined(&boxed));
     assert_eq!(boxed.downcast_ref(), Some(&3usize));
@@ -90,7 +96,7 @@ pub fn test_inlined_any() {
 
 #[test]
 pub fn test_heap_any() {
-    let mut boxed: SmallBox<dyn Any, [usize; 0]> = SmallBox::coerce(SmallBox::new(1usize));
+    let mut boxed: SmallBox<dyn Any, [usize; 0], Global> = SmallBox::coerce(SmallBox::try_new(1usize).unwrap());
 
     assert!(!SmallBox::is_inlined(&boxed));
     assert_eq!(boxed.downcast_ref(), Some(&1usize));
@@ -103,7 +109,7 @@ pub fn test_heap_any() {
     assert_eq!(*boxed, 2usize);
     *boxed = 3usize;
 
-    let boxed: SmallBox<dyn Any, [usize; 0]> = SmallBox::coerce(boxed);
+    let boxed: SmallBox<dyn Any, [usize; 0], Global> = SmallBox::coerce(boxed);
 
     assert!(!SmallBox::is_inlined(&boxed));
     assert_eq!(boxed.downcast_ref(), Some(&3usize));
@@ -123,14 +129,14 @@ pub fn test_drop() {
     }
 
     let flag = Cell::new(false);
-    let stacked: SmallBox<_, [usize; 2]> = SmallBox::new(Struct(&flag, 0));
+    let stacked: SmallBox<_, [usize; 2], Global> = SmallBox::try_new(Struct(&flag, 0)).unwrap();
     assert!(SmallBox::is_inlined(&stacked));
     assert!(!flag.get());
     drop(stacked);
     assert!(flag.get());
 
     let flag = Cell::new(false);
-    let heaped: SmallBox<_, [usize; 0]> = SmallBox::new(Struct(&flag, 0));
+    let heaped: SmallBox<_, [usize; 0], Global> = SmallBox::try_new(Struct(&flag, 0)).unwrap();
     assert!(!SmallBox::is_inlined(&heaped));
     assert!(!flag.get());
     drop(heaped);
@@ -142,7 +148,7 @@ fn test_zst() {
     #[derive(Debug, Eq, PartialEq)]
     struct ZST;
 
-    let zst: SmallBox<ZST, [usize; 0]> = SmallBox::new(ZST);
+    let zst: SmallBox<ZST, [usize; 0], Global> = SmallBox::try_new(ZST).unwrap();
     assert_eq!(*zst, ZST);
     assert!(SmallBox::is_inlined(&zst))
 }
@@ -151,13 +157,13 @@ fn test_zst() {
 fn test_sizes() {
     let ptr = size_of::<usize>();
 
-    assert!(size_of::<SmallBox<u8, [usize; 0]>>() == 1 * ptr);
-    assert!(size_of::<SmallBox<u8, [usize; 1]>>() == 1 * ptr);
-    assert!(size_of::<SmallBox<u8, [usize; 2]>>() == 2 * ptr);
-    assert!(size_of::<SmallBox<u8, [usize; 3]>>() == 3 * ptr);
+    assert!(size_of::<SmallBox<u8, [usize; 0], Global>>() == 1 * ptr);
+    assert!(size_of::<SmallBox<u8, [usize; 1], Global>>() == 1 * ptr);
+    assert!(size_of::<SmallBox<u8, [usize; 2], Global>>() == 2 * ptr);
+    assert!(size_of::<SmallBox<u8, [usize; 3], Global>>() == 3 * ptr);
 
-    assert!(size_of::<SmallBox<[u8], [usize; 0]>>() == 2 * ptr);
-    assert!(size_of::<SmallBox<[u8], [usize; 1]>>() == 2 * ptr);
-    assert!(size_of::<SmallBox<[u8], [usize; 2]>>() == 3 * ptr);
-    assert!(size_of::<SmallBox<[u8], [usize; 3]>>() == 4 * ptr);
+    assert!(size_of::<SmallBox<[u8], [usize; 0], Global>>() == 2 * ptr);
+    assert!(size_of::<SmallBox<[u8], [usize; 1], Global>>() == 2 * ptr);
+    assert!(size_of::<SmallBox<[u8], [usize; 2], Global>>() == 3 * ptr);
+    assert!(size_of::<SmallBox<[u8], [usize; 3], Global>>() == 4 * ptr);
 }
