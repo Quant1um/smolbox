@@ -6,7 +6,7 @@ repository = "https://github.com/Quant1um/smolbox"
 categories = ["data-structures"]
 description = "Like a Box, but small objects are stored on the stack"
 authors = ["Quant1um"]
-keywords = ["box", "smallbox", "alloc", "dst", "stack", "no_std"]
+keywords = ["box", "smallbox", "dst", "stack", "no_std"]
 license = "MIT/Apache-2.0"
 
 [dependencies]
