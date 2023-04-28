@@ -1,0 +1,14 @@
+[package]
+name = "smolbox"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+[dev-dependencies]
+assert_no_alloc = "1"
+impls = "1"
+
+[features]
+default = ["alloc"]
+alloc = []
