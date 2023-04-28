@@ -1,6 +1,8 @@
 # smolbox
 Like a `Box`, but small objects are stored on the stack.
 
+> This crate is a work-in-progress, please do not use for anything serious
+
 ## License
 
 This project is licensed under either of
