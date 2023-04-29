@@ -7,7 +7,6 @@
     unsize,
     maybe_uninit_write_slice
 )]
-
 // #![warn(missing_docs)]
 //#![deny(clippy::missing_safety_doc)]
 #![doc = include_str!("../README.md")]
@@ -35,9 +34,7 @@ use core::{
 use inner::Inner;
 
 #[cfg(feature = "alloc")]
-pub struct SmallBox<T: ?Sized, Space, A: Allocator = alloc::alloc::Global>(
-    Inner<T, Space, A>,
-);
+pub struct SmallBox<T: ?Sized, Space, A: Allocator = alloc::alloc::Global>(Inner<T, Space, A>);
 
 #[cfg(not(feature = "alloc"))]
 pub struct SmallBox<T: ?Sized, Space, A: Allocator>(Inner<T, Space, A>);
@@ -255,7 +252,7 @@ impl<T: ?Sized, S, A: Allocator> SmallBox<T, S, A> {
     pub fn try_into_box(boxed: Self) -> Result<alloc::boxed::Box<T, A>, Self> {
         match boxed.0.try_into_box() {
             Ok(boxed) => Ok(boxed),
-            Err(inner) => Err(Self(inner))
+            Err(inner) => Err(Self(inner)),
         }
     }
 
@@ -265,7 +262,7 @@ impl<T: ?Sized, S, A: Allocator> SmallBox<T, S, A> {
     pub fn into_box(boxed: Self) -> alloc::boxed::Box<T, A> {
         match boxed.0.try_into_box() {
             Ok(boxed) => boxed,
-            Err(inner) => handle_alloc_error::<T>(inner.metadata())
+            Err(inner) => handle_alloc_error::<T>(inner.metadata()),
         }
     }
 }

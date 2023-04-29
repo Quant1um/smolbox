@@ -2,11 +2,7 @@
 
 extern crate smolbox;
 
-use std::{
-    any::Any, 
-    mem::size_of, 
-    alloc::Global
-};
+use std::{alloc::Global, any::Any, mem::size_of};
 
 use assert_no_alloc::*;
 use smolbox::SmallBox;
@@ -73,7 +69,8 @@ pub fn test_heap_large() {
 
 #[test]
 pub fn test_inlined_any() {
-    let mut boxed: SmallBox<dyn Any, [usize; 1], Global> = SmallBox::coerce(SmallBox::try_new(1usize).unwrap());
+    let mut boxed: SmallBox<dyn Any, [usize; 1], Global> =
+        SmallBox::coerce(SmallBox::try_new(1usize).unwrap());
 
     assert!(SmallBox::is_inlined(&boxed));
     assert_eq!(boxed.downcast_ref(), Some(&1usize));
@@ -96,7 +93,8 @@ pub fn test_inlined_any() {
 
 #[test]
 pub fn test_heap_any() {
-    let mut boxed: SmallBox<dyn Any, [usize; 0], Global> = SmallBox::coerce(SmallBox::try_new(1usize).unwrap());
+    let mut boxed: SmallBox<dyn Any, [usize; 0], Global> =
+        SmallBox::coerce(SmallBox::try_new(1usize).unwrap());
 
     assert!(!SmallBox::is_inlined(&boxed));
     assert_eq!(boxed.downcast_ref(), Some(&1usize));
@@ -172,12 +170,12 @@ fn test_sizes() {
 fn test_heap_box_conversions() {
     let boxed = SmallBox::<_, [usize; 0], Global>::try_new(1usize).unwrap();
     assert!(!SmallBox::is_inlined(&boxed));
-    
+
     let mut boxed = SmallBox::try_into_box(boxed).unwrap();
     assert_eq!(*boxed, 1);
     *boxed = 2;
 
-    let boxed: SmallBox::<_, [usize; 0], Global> = SmallBox::from_box(boxed);
+    let boxed: SmallBox<_, [usize; 0], Global> = SmallBox::from_box(boxed);
     assert!(!SmallBox::is_inlined(&boxed));
     assert_eq!(*boxed, 2);
 }
@@ -191,7 +189,7 @@ fn test_inlined_box_conversions() {
     assert_eq!(*boxed, 1);
     *boxed = 2;
 
-    let boxed: SmallBox::<_, [usize; 1], Global> = SmallBox::from_box(boxed);
+    let boxed: SmallBox<_, [usize; 1], Global> = SmallBox::from_box(boxed);
     assert!(SmallBox::is_inlined(&boxed));
     assert_eq!(*boxed, 2);
 }
