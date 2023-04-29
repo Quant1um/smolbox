@@ -13,18 +13,27 @@ union Data<S> {
 
 impl<S> Data<S> {
     #[inline]
+    fn new_stack() -> Self {
+        Self { stack: ManuallyDrop::new(MaybeUninit::uninit()) }
+    }
+
+    #[inline]
+    fn new_heap(heap: NonNull<u8>) -> Self {
+        Self { heap }
+    }
+
+    #[inline]
     fn try_new_uninit_in<T: ?Sized, A: Allocator>(
         metadata: <T as Pointee>::Metadata,
         alloc: &A,
     ) -> Result<Self, AllocError> {
         if Self::inlined::<T>(metadata) {
-            Ok(Self {
-                stack: ManuallyDrop::new(MaybeUninit::uninit()),
-            })
+            Ok(Self::new_stack())
         } else {
-            Ok(Self {
-                heap: alloc.allocate(layout_from_metadata::<T>(metadata))?.cast(),
-            })
+            Ok(Self::new_heap(
+                alloc.allocate(layout_from_metadata::<T>(metadata))?
+                .cast()
+            ))
         }
     }
 
@@ -34,15 +43,12 @@ impl<S> Data<S> {
         alloc: &A,
     ) -> Result<Self, AllocError> {
         if Self::inlined::<T>(metadata) {
-            Ok(Self {
-                stack: ManuallyDrop::new(MaybeUninit::uninit()),
-            })
+            Ok(Self::new_stack())
         } else {
-            Ok(Self {
-                heap: alloc
-                    .allocate_zeroed(layout_from_metadata::<T>(metadata))?
-                    .cast(),
-            })
+            Ok(Self::new_heap(
+                alloc.allocate_zeroed(layout_from_metadata::<T>(metadata))?
+                .cast()
+            ))
         }
     }
 
@@ -172,6 +178,16 @@ impl<T: ?Sized, S, A: Allocator> Inner<T, S, A> {
     }
 
     #[inline]
+    pub fn allocator(&self) -> &A {
+        &self.alloc
+    }
+
+    #[inline]
+    pub fn metadata(&self) -> <T as Pointee>::Metadata {
+        self.metadata
+    }
+
+    #[inline]
     fn into_parts(self) -> (Data<S>, <T as Pointee>::Metadata, A) {
         unsafe {
             let metadata = self.metadata;
@@ -181,11 +197,6 @@ impl<T: ?Sized, S, A: Allocator> Inner<T, S, A> {
             forget(self);
             (data, metadata, alloc)
         }
-    }
-
-    #[inline]
-    pub fn allocator(&self) -> &A {
-        &self.alloc
     }
 
     #[inline]
@@ -200,6 +211,76 @@ impl<T: ?Sized, S, A: Allocator> Inner<T, S, A> {
             metadata: coerce_metadata::<U, T>(metadata),
             data,
             alloc,
+        }
+    }
+
+    #[inline]
+    #[cfg(feature = "alloc")]   
+    pub fn from_box(boxed: alloc::boxed::Box<T, A>) -> Self {
+        use core::ptr::copy_nonoverlapping;
+
+        let (src, alloc) = alloc::boxed::Box::into_raw_with_allocator(boxed);
+        let (src, metadata) = src.to_raw_parts();
+        let src = unsafe { NonNull::new_unchecked(src as *mut _) };
+        
+
+        if Self::inlined(metadata) {
+            let layout = layout_from_metadata::<T>(metadata);
+            let mut data = Data::new_stack();
+
+            unsafe { 
+                copy_nonoverlapping(src.as_ptr(), &mut data.stack as *mut _ as *mut u8, layout.size());
+                alloc.deallocate(src, layout); 
+            }
+
+            Self {
+                phantom: PhantomData,
+                data,
+                metadata,
+                alloc
+            }
+        } else {
+            Self {
+                phantom: PhantomData,
+                data: Data::new_heap(src),
+                metadata,
+                alloc
+            }
+        }
+    }
+
+    #[inline]
+    #[cfg(feature = "alloc")]    
+    pub fn try_into_box(self) -> Result<alloc::boxed::Box<T, A>, Self> {
+        use core::ptr::copy_nonoverlapping;
+
+        let (mut data, metadata, alloc) = self.into_parts();
+        let (mut raw, heap) = data.as_mut_ptr::<T>(metadata);
+
+        if !heap {
+            let layout = layout_from_metadata::<T>(metadata);
+            let heap_ptr = match alloc.allocate(layout) {
+                Ok(ptr) => ptr.cast().as_ptr(),
+                Err(_) => return Err(Self { 
+                    phantom: PhantomData, 
+                    metadata,
+                    data,
+                    alloc
+                })
+            };
+
+            unsafe {
+                copy_nonoverlapping(raw as *mut u8, heap_ptr as *mut u8, layout.size());
+            }
+
+            raw = from_raw_parts_mut(
+                heap_ptr, 
+                metadata
+            );
+        }
+
+        unsafe {
+            Ok(alloc::boxed::Box::from_raw_in(raw, alloc))
         }
     }
 
@@ -286,6 +367,8 @@ where
     metadata
 }
 
+#[cold]
+#[inline(never)]
 #[cfg(feature = "alloc")]
 #[cfg(not(no_global_oom_handling))]
 pub fn handle_alloc_error<T: ?Sized>(metadata: <T as Pointee>::Metadata) -> ! {

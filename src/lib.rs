@@ -243,6 +243,31 @@ impl<T: ?Sized, S, A: Allocator> SmallBox<T, S, A> {
     {
         SmallBox(boxed.0.coerce())
     }
+
+    #[inline]
+    #[cfg(feature = "alloc")]
+    pub fn from_box(boxed: alloc::boxed::Box<T, A>) -> Self {
+        Self(Inner::from_box(boxed))
+    }
+
+    #[inline]
+    #[cfg(feature = "alloc")]
+    pub fn try_into_box(boxed: Self) -> Result<alloc::boxed::Box<T, A>, Self> {
+        match boxed.0.try_into_box() {
+            Ok(boxed) => Ok(boxed),
+            Err(inner) => Err(Self(inner))
+        }
+    }
+
+    #[inline]
+    #[cfg(feature = "alloc")]
+    #[cfg(not(no_global_oom_handling))]
+    pub fn into_box(boxed: Self) -> alloc::boxed::Box<T, A> {
+        match boxed.0.try_into_box() {
+            Ok(boxed) => boxed,
+            Err(inner) => handle_alloc_error::<T>(inner.metadata())
+        }
+    }
 }
 
 impl<T: Any + ?Sized, S, A: Allocator> SmallBox<T, S, A> {

@@ -167,3 +167,31 @@ fn test_sizes() {
     assert!(size_of::<SmallBox<[u8], [usize; 2], Global>>() == 3 * ptr);
     assert!(size_of::<SmallBox<[u8], [usize; 3], Global>>() == 4 * ptr);
 }
+
+#[test]
+fn test_heap_box_conversions() {
+    let boxed = SmallBox::<_, [usize; 0], Global>::try_new(1usize).unwrap();
+    assert!(!SmallBox::is_inlined(&boxed));
+    
+    let mut boxed = SmallBox::try_into_box(boxed).unwrap();
+    assert_eq!(*boxed, 1);
+    *boxed = 2;
+
+    let boxed: SmallBox::<_, [usize; 0], Global> = SmallBox::from_box(boxed);
+    assert!(!SmallBox::is_inlined(&boxed));
+    assert_eq!(*boxed, 2);
+}
+
+#[test]
+fn test_inlined_box_conversions() {
+    let boxed = SmallBox::<_, [usize; 1], Global>::try_new(1usize).unwrap();
+    assert!(SmallBox::is_inlined(&boxed));
+
+    let mut boxed = SmallBox::try_into_box(boxed).unwrap();
+    assert_eq!(*boxed, 1);
+    *boxed = 2;
+
+    let boxed: SmallBox::<_, [usize; 1], Global> = SmallBox::from_box(boxed);
+    assert!(SmallBox::is_inlined(&boxed));
+    assert_eq!(*boxed, 2);
+}
