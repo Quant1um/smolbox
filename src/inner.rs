@@ -3,13 +3,15 @@ use core::{
     marker::{PhantomData, Unsize},
     mem::{forget, ManuallyDrop, MaybeUninit},
     ops::{Deref, DerefMut},
-    ptr::{drop_in_place, from_raw_parts, from_raw_parts_mut, null, read, NonNull, Pointee, copy_nonoverlapping},
+    ptr::{
+        copy_nonoverlapping, drop_in_place, from_raw_parts, from_raw_parts_mut, null, read,
+        NonNull, Pointee,
+    },
 };
 
 struct Stack<S>(MaybeUninit<S>);
 
 impl<S> Stack<S> {
-
     #[inline]
     fn new_uninit() -> Self {
         Self(MaybeUninit::uninit())
@@ -21,14 +23,32 @@ impl<S> Stack<S> {
     }
 
     #[inline]
-    unsafe fn from_heap<T: ?Sized, A: Allocator>(heap: Heap, metadata: <T as Pointee>::Metadata, alloc: &A) -> Self {
+    unsafe fn from_stack<T: ?Sized, Z>(src: Stack<Z>, metadata: <T as Pointee>::Metadata) -> Self {
         let layout = layout_from_metadata::<T>(metadata);
         let mut stack = Self::new_uninit();
 
         copy_nonoverlapping(
-            heap.as_ptr::<u8>(()), 
-            stack.as_mut_ptr::<u8>(()), 
-            layout.size()
+            src.as_ptr::<u8>(()),
+            stack.as_mut_ptr::<u8>(()),
+            layout.size(),
+        );
+
+        stack
+    }
+
+    #[inline]
+    unsafe fn from_heap<T: ?Sized, A: Allocator>(
+        heap: Heap,
+        metadata: <T as Pointee>::Metadata,
+        alloc: &A,
+    ) -> Self {
+        let layout = layout_from_metadata::<T>(metadata);
+        let mut stack = Self::new_uninit();
+
+        copy_nonoverlapping(
+            heap.as_ptr::<u8>(()),
+            stack.as_mut_ptr::<u8>(()),
+            layout.size(),
         );
 
         heap.deallocate::<T, _>(metadata, alloc);
@@ -55,33 +75,48 @@ impl<S> Stack<S> {
 struct Heap(NonNull<u8>);
 
 impl Heap {
-
     #[inline]
-    fn try_new_uninit_in<T: ?Sized, A: Allocator>(metadata: <T as Pointee>::Metadata, alloc: &A) -> Result<Self, AllocError> {
-        Ok(Self(alloc.allocate(layout_from_metadata::<T>(metadata))?.cast()))
+    fn try_new_uninit_in<T: ?Sized, A: Allocator>(
+        metadata: <T as Pointee>::Metadata,
+        alloc: &A,
+    ) -> Result<Self, AllocError> {
+        Ok(Self(
+            alloc.allocate(layout_from_metadata::<T>(metadata))?.cast(),
+        ))
     }
 
     #[inline]
-    fn try_new_zeroed_in<T: ?Sized, A: Allocator>(metadata: <T as Pointee>::Metadata, alloc: &A) -> Result<Self, AllocError> {
-        Ok(Self(alloc.allocate_zeroed(layout_from_metadata::<T>(metadata))?.cast()))
+    fn try_new_zeroed_in<T: ?Sized, A: Allocator>(
+        metadata: <T as Pointee>::Metadata,
+        alloc: &A,
+    ) -> Result<Self, AllocError> {
+        Ok(Self(
+            alloc
+                .allocate_zeroed(layout_from_metadata::<T>(metadata))?
+                .cast(),
+        ))
     }
 
     #[inline]
-    unsafe fn try_from_stack_in<T: ?Sized, S, A: Allocator>(stack: Stack<S>, metadata: <T as Pointee>::Metadata, alloc: &A) -> Result<Self, Stack<S>> {
+    unsafe fn try_from_stack_in<T: ?Sized, S, A: Allocator>(
+        stack: Stack<S>,
+        metadata: <T as Pointee>::Metadata,
+        alloc: &A,
+    ) -> Result<Self, Stack<S>> {
         match Self::try_new_uninit_in::<T, _>(metadata, alloc) {
             Ok(mut heap) => {
                 let layout = layout_from_metadata::<T>(metadata);
 
                 copy_nonoverlapping(
-                    stack.as_ptr::<u8>(()), 
-                    heap.as_mut_ptr::<u8>(()), 
-                    layout.size()
+                    stack.as_ptr::<u8>(()),
+                    heap.as_mut_ptr::<u8>(()),
+                    layout.size(),
                 );
 
                 Ok(heap)
-            },
+            }
 
-            Err(_) => Err(stack)
+            Err(_) => Err(stack),
         }
     }
 
@@ -101,12 +136,20 @@ impl Heap {
     }
 
     #[inline]
-    unsafe fn deallocate<T: ?Sized, A: Allocator>(self, metadata: <T as Pointee>::Metadata, alloc: &A) {
+    unsafe fn deallocate<T: ?Sized, A: Allocator>(
+        self,
+        metadata: <T as Pointee>::Metadata,
+        alloc: &A,
+    ) {
         alloc.deallocate(self.0, layout_from_metadata::<T>(metadata));
     }
 
     #[inline]
-    unsafe fn drop<T: ?Sized, A: Allocator>(mut self, metadata: <T as Pointee>::Metadata, alloc: &A) {
+    unsafe fn drop<T: ?Sized, A: Allocator>(
+        mut self,
+        metadata: <T as Pointee>::Metadata,
+        alloc: &A,
+    ) {
         drop_in_place(self.as_mut_ptr::<T>(metadata));
         self.deallocate::<T, _>(metadata, alloc)
     }
@@ -119,20 +162,75 @@ union Data<S> {
 
 impl<S> Data<S> {
     #[inline]
-    unsafe fn from_heap<T: ?Sized, A: Allocator>(heap: Heap, metadata: <T as Pointee>::Metadata, alloc: &A) -> Self {
-        if Self::inlined::<T>(metadata) {
-            Self { stack: ManuallyDrop::new(Stack::from_heap::<T, _>(heap, metadata, alloc)) }
+    unsafe fn try_from_data_in<T: ?Sized, Z, A: Allocator>(
+        data: Data<Z>,
+        metadata: <T as Pointee>::Metadata,
+        alloc: &A,
+    ) -> Result<Self, Data<Z>> {
+        if Data::<Z>::inlined::<T>(metadata) {
+            let stack = ManuallyDrop::into_inner(data.stack);
+
+            if Self::inlined::<T>(metadata) {
+                Ok(Self {
+                    stack: ManuallyDrop::new(Stack::from_stack::<T, _>(stack, metadata)),
+                })
+            } else {
+                match Heap::try_from_stack_in::<T, _, _>(stack, metadata, alloc) {
+                    Ok(heap) => Ok(Self {
+                        heap: ManuallyDrop::new(heap),
+                    }),
+                    Err(stack) => Err(Data {
+                        stack: ManuallyDrop::new(stack),
+                    }),
+                }
+            }
         } else {
-            Self { heap: ManuallyDrop::new(heap) }
+            Ok(Self::from_heap::<T, _>(
+                ManuallyDrop::into_inner(data.heap),
+                metadata,
+                alloc,
+            ))
+        }
+    }
+
+    // #[inline]
+    // unsafe fn try_from_stack_in<T: ?Sized, A: Allocator>(stack: Stack<S>, metadata: <T as Pointee>::Metadata, alloc: &A) -> Result<Self, Stack<S>> {
+    //
+    // }
+
+    #[inline]
+    unsafe fn from_heap<T: ?Sized, A: Allocator>(
+        heap: Heap,
+        metadata: <T as Pointee>::Metadata,
+        alloc: &A,
+    ) -> Self {
+        if Self::inlined::<T>(metadata) {
+            Self {
+                stack: ManuallyDrop::new(Stack::from_heap::<T, _>(heap, metadata, alloc)),
+            }
+        } else {
+            Self {
+                heap: ManuallyDrop::new(heap),
+            }
         }
     }
 
     #[inline]
-    unsafe fn try_into_heap_in<T: ?Sized, A: Allocator>(mut self, metadata: <T as Pointee>::Metadata, alloc: &A) -> Result<Heap, Self> {
+    unsafe fn try_into_heap_in<T: ?Sized, A: Allocator>(
+        mut self,
+        metadata: <T as Pointee>::Metadata,
+        alloc: &A,
+    ) -> Result<Heap, Self> {
         if Self::inlined::<T>(metadata) {
-            match Heap::try_from_stack_in::<T, _, _>(ManuallyDrop::take(&mut self.stack), metadata, alloc) {
+            match Heap::try_from_stack_in::<T, _, _>(
+                ManuallyDrop::take(&mut self.stack),
+                metadata,
+                alloc,
+            ) {
                 Ok(heap) => Ok(heap),
-                Err(stack) => Err(Self { stack: ManuallyDrop::new(stack) })
+                Err(stack) => Err(Self {
+                    stack: ManuallyDrop::new(stack),
+                }),
             }
         } else {
             Ok(ManuallyDrop::take(&mut self.heap))
@@ -145,9 +243,13 @@ impl<S> Data<S> {
         alloc: &A,
     ) -> Result<Self, AllocError> {
         if Self::inlined::<T>(metadata) {
-            Ok(Self { stack: ManuallyDrop::new(Stack::new_uninit()) })
+            Ok(Self {
+                stack: ManuallyDrop::new(Stack::new_uninit()),
+            })
         } else {
-            Ok(Self { heap: ManuallyDrop::new(Heap::try_new_uninit_in::<T, _>(metadata, alloc)?) })
+            Ok(Self {
+                heap: ManuallyDrop::new(Heap::try_new_uninit_in::<T, _>(metadata, alloc)?),
+            })
         }
     }
 
@@ -157,15 +259,19 @@ impl<S> Data<S> {
         alloc: &A,
     ) -> Result<Self, AllocError> {
         if Self::inlined::<T>(metadata) {
-            Ok(Self { stack: ManuallyDrop::new(Stack::new_zeroed()) })
+            Ok(Self {
+                stack: ManuallyDrop::new(Stack::new_zeroed()),
+            })
         } else {
-            Ok(Self { heap: ManuallyDrop::new(Heap::try_new_zeroed_in::<T, _>(metadata, alloc)?) })
+            Ok(Self {
+                heap: ManuallyDrop::new(Heap::try_new_zeroed_in::<T, _>(metadata, alloc)?),
+            })
         }
     }
 
     #[inline]
     fn as_ptr<T: ?Sized>(&self, metadata: <T as Pointee>::Metadata) -> *const T {
-        unsafe { 
+        unsafe {
             if Self::inlined::<T>(metadata) {
                 self.stack.as_ptr(metadata)
             } else {
@@ -176,7 +282,7 @@ impl<S> Data<S> {
 
     #[inline]
     fn as_mut_ptr<T: ?Sized>(&mut self, metadata: <T as Pointee>::Metadata) -> *mut T {
-        unsafe { 
+        unsafe {
             if Self::inlined::<T>(metadata) {
                 self.stack.as_mut_ptr(metadata)
             } else {
@@ -186,8 +292,12 @@ impl<S> Data<S> {
     }
 
     #[inline]
-    unsafe fn drop<T: ?Sized, A: Allocator>(&mut self, metadata: <T as Pointee>::Metadata, alloc: &A) {
-        unsafe { 
+    unsafe fn drop<T: ?Sized, A: Allocator>(
+        &mut self,
+        metadata: <T as Pointee>::Metadata,
+        alloc: &A,
+    ) {
+        unsafe {
             if Self::inlined::<T>(metadata) {
                 ManuallyDrop::take(&mut self.stack).drop::<T>(metadata)
             } else {
@@ -347,17 +457,43 @@ impl<T: ?Sized, S, A: Allocator> Inner<T, S, A> {
     #[cfg(feature = "alloc")]
     pub fn try_into_box(self) -> Result<alloc::boxed::Box<T, A>, Self> {
         let (data, metadata, alloc) = self.into_parts();
-        
-        unsafe { 
+
+        unsafe {
             match data.try_into_heap_in::<T, _>(metadata, &alloc) {
-                Ok(mut heap) => Ok(alloc::boxed::Box::from_raw_in(heap.as_mut_ptr(metadata), alloc)),
+                Ok(mut heap) => Ok(alloc::boxed::Box::from_raw_in(
+                    heap.as_mut_ptr(metadata),
+                    alloc,
+                )),
                 Err(data) => Err(Self {
                     phantom: PhantomData,
                     metadata,
                     data,
-                    alloc
-                })
-            } 
+                    alloc,
+                }),
+            }
+        }
+    }
+
+    #[inline]
+    pub fn try_resize_stack<Z>(self) -> Result<Inner<T, Z, A>, Self> {
+        let (data, metadata, alloc) = self.into_parts();
+
+        unsafe {
+            match Data::<Z>::try_from_data_in::<T, _, _>(data, metadata, &alloc) {
+                Ok(data) => Ok(Inner {
+                    phantom: PhantomData,
+                    metadata,
+                    data,
+                    alloc,
+                }),
+
+                Err(data) => Err(Self {
+                    phantom: PhantomData,
+                    metadata,
+                    data,
+                    alloc,
+                }),
+            }
         }
     }
 
@@ -393,9 +529,7 @@ impl<T: ?Sized, S, A: Allocator> Inner<T, S, A> {
 impl<T: ?Sized, S, A: Allocator> Drop for Inner<T, S, A> {
     #[inline]
     fn drop(&mut self) {
-        unsafe {
-            self.data.drop::<T, _>(self.metadata, &self.alloc)
-        }
+        unsafe { self.data.drop::<T, _>(self.metadata, &self.alloc) }
     }
 }
 

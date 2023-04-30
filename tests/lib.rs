@@ -167,6 +167,29 @@ fn test_sizes() {
 }
 
 #[test]
+fn test_resize_stack() {
+    let boxed = SmallBox::<_, [usize; 0], Global>::try_new(1usize).unwrap();
+
+    assert!(!SmallBox::is_inlined(&boxed));
+    assert_eq!(*boxed, 1);
+
+    let boxed = SmallBox::try_resize_stack::<[usize; 1]>(boxed).unwrap();
+
+    assert!(SmallBox::is_inlined(&boxed));
+    assert_eq!(*boxed, 1);
+
+    let boxed = SmallBox::try_resize_stack::<[usize; 16]>(boxed).unwrap();
+
+    assert!(SmallBox::is_inlined(&boxed));
+    assert_eq!(*boxed, 1);
+
+    let boxed = SmallBox::try_resize_stack::<[usize; 0]>(boxed).unwrap();
+
+    assert!(!SmallBox::is_inlined(&boxed));
+    assert_eq!(*boxed, 1);
+}
+
+#[test]
 #[cfg(feature = "alloc")]
 fn test_heap_box_conversions() {
     let boxed = SmallBox::<_, [usize; 0], Global>::try_new(1usize).unwrap();

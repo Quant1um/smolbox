@@ -217,7 +217,7 @@ impl<T: Sized, S, A: Allocator> SmallBox<T, S, A> {
 
 impl<T: Sized, S, A: Allocator> SmallBox<[T], S, A> {
     #[inline]
-    pub fn uninit(boxed: Self) -> SmallBox<[MaybeUninit<T>], S, A> {
+    pub fn uninit_slice(boxed: Self) -> SmallBox<[MaybeUninit<T>], S, A> {
         unsafe { SmallBox(boxed.0.reinterpret_unchecked()) }
     }
 }
@@ -239,6 +239,24 @@ impl<T: ?Sized, S, A: Allocator> SmallBox<T, S, A> {
         T: Unsize<U>,
     {
         SmallBox(boxed.0.coerce())
+    }
+
+    #[inline]
+    pub fn try_resize_stack<Z>(boxed: Self) -> Result<SmallBox<T, Z, A>, Self> {
+        match boxed.0.try_resize_stack() {
+            Ok(inner) => Ok(SmallBox(inner)),
+            Err(inner) => Err(Self(inner)),
+        }
+    }
+
+    #[inline]
+    #[cfg(feature = "alloc")]
+    #[cfg(not(no_global_oom_handling))]
+    pub fn resize_stack<Z>(boxed: Self) -> SmallBox<T, Z, A> {
+        match boxed.0.try_resize_stack() {
+            Ok(inner) => SmallBox(inner),
+            Err(inner) => handle_alloc_error::<T>(inner.metadata()),
+        }
     }
 
     #[inline]
