@@ -167,6 +167,7 @@ fn test_sizes() {
 }
 
 #[test]
+#[cfg(feature = "alloc")]
 fn test_heap_box_conversions() {
     let boxed = SmallBox::<_, [usize; 0], Global>::try_new(1usize).unwrap();
     assert!(!SmallBox::is_inlined(&boxed));
@@ -181,6 +182,7 @@ fn test_heap_box_conversions() {
 }
 
 #[test]
+#[cfg(feature = "alloc")]
 fn test_inlined_box_conversions() {
     let boxed = SmallBox::<_, [usize; 1], Global>::try_new(1usize).unwrap();
     assert!(SmallBox::is_inlined(&boxed));
