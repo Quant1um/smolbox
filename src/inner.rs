@@ -121,6 +121,7 @@ impl Heap {
     }
 
     #[inline]
+    #[cfg(feature = "alloc")]
     unsafe fn from_raw(ptr: *mut u8) -> Self {
         Self(NonNull::new_unchecked(ptr))
     }
@@ -216,6 +217,7 @@ impl<S> Data<S> {
     }
 
     #[inline]
+    #[cfg(feature = "alloc")]
     unsafe fn try_into_heap_in<T: ?Sized, A: Allocator>(
         mut self,
         metadata: <T as Pointee>::Metadata,
@@ -407,6 +409,7 @@ impl<T: ?Sized, S, A: Allocator> Inner<T, S, A> {
     }
 
     #[inline]
+    #[cfg(feature = "alloc")]
     pub fn metadata(&self) -> <T as Pointee>::Metadata {
         self.metadata
     }
